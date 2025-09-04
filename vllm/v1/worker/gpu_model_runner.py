@@ -108,12 +108,17 @@ class AsyncGPUModelRunnerOutput(AsyncModelRunnerOutput):
         sampled_token_ids: torch.Tensor,
         invalid_req_indices: list[int],
         async_output_copy_stream: torch.cuda.Stream,
+        cuda_events_pool: list[torch.cuda.Event],
     ):
         self._model_runner_output = model_runner_output
         self._invalid_req_indices = invalid_req_indices
+        self._cuda_events_pool = cuda_events_pool
 
         # Event on the copy stream so we can synchronize the non-blocking copy.
-        self._async_copy_ready_event = torch.cuda.Event()
+        try:
+            self._async_copy_ready_event = cuda_events_pool.pop()
+        except IndexError:
+            self._async_copy_ready_event = torch.cuda.Event()
 
         # Keep a reference to the device tensor to avoid it being
         # deallocated until we finish copying it to the host.
@@ -135,6 +140,8 @@ class AsyncGPUModelRunnerOutput(AsyncModelRunnerOutput):
         self._async_copy_ready_event.synchronize()
 
         # Release the device tensor once the copy has completed
+        self._cuda_events_pool.append(self._async_copy_ready_event)
+        del self._async_copy_ready_event
         del self._sampled_token_ids
 
         valid_sampled_token_ids = self._sampled_token_ids_cpu.tolist()
@@ -279,6 +286,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         self.use_async_scheduling = self.scheduler_config.async_scheduling
         self.async_output_copy_stream = torch.cuda.Stream() if \
             self.use_async_scheduling else None
+
+        self.cuda_events: list[torch.cuda.Event] = []
 
         # TODO(woosuk): Provide an option to tune the max cudagraph batch size.
         # The convention is different.
@@ -1914,6 +1923,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             sampled_token_ids=sampled_token_ids,
             invalid_req_indices=invalid_req_indices,
             async_output_copy_stream=self.async_output_copy_stream,
+            cuda_events_pool=self.cuda_events,
         )
 
     def take_draft_token_ids(self) -> Optional[DraftTokenIds]:
