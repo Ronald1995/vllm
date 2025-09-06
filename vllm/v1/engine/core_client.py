@@ -245,7 +245,11 @@ class InprocClient(EngineCoreClient):
         self.engine_core = EngineCore(*args, **kwargs)
 
     def get_output(self) -> EngineCoreOutputs:
-        outputs, _ = self.engine_core.step()
+        outputs, _ = self.engine_core.step_fn()
+        if isinstance(outputs, Exception):
+            logger.error("EngineCore step failed with error: %s", outputs)
+            raise outputs
+        outputs = {} if outputs is None else outputs
         return outputs.get(0) or EngineCoreOutputs()
 
     def get_supported_tasks(self) -> tuple[SupportedTask, ...]:
