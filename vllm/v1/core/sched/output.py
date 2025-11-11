@@ -14,7 +14,8 @@ if TYPE_CHECKING:
     import torch
 
     from vllm.distributed.kv_transfer.kv_connector.v1.base import (
-        KVConnectorMetadata)
+        KVConnectorMetadata,
+    )
     from vllm.lora.request import LoRARequest
     from vllm.multimodal.inputs import MultiModalFeatureSpec
     from vllm.pooling_params import PoolingParams
@@ -25,7 +26,6 @@ if TYPE_CHECKING:
 @bc_linter_include
 @dataclass
 class NewRequestData:
-
     req_id: str
     prompt_token_ids: Optional[list[int]]
     mm_features: list[MultiModalFeatureSpec]
@@ -55,42 +55,49 @@ class NewRequestData:
         )
 
     def __repr__(self) -> str:
-        prompt_embeds_shape = (self.prompt_embeds.shape
-                               if self.prompt_embeds else None)
-        return (f"NewRequestData("
-                f"req_id={self.req_id},"
-                f"prompt_token_ids={self.prompt_token_ids},"
-                f"mm_features={self.mm_features},"
-                f"sampling_params={self.sampling_params},"
-                f"block_ids={self.block_ids},"
-                f"num_computed_tokens={self.num_computed_tokens},"
-                f"lora_request={self.lora_request},"
-                f"prompt_embeds_shape={prompt_embeds_shape}"
-                ")")
+        prompt_embeds_shape = (
+            self.prompt_embeds.shape if self.prompt_embeds else None
+        )
+        return (
+            f"NewRequestData("
+            f"req_id={self.req_id},"
+            f"prompt_token_ids={self.prompt_token_ids},"
+            f"mm_features={self.mm_features},"
+            f"sampling_params={self.sampling_params},"
+            f"block_ids={self.block_ids},"
+            f"num_computed_tokens={self.num_computed_tokens},"
+            f"lora_request={self.lora_request},"
+            f"prompt_embeds_shape={prompt_embeds_shape}"
+            ")"
+        )
 
     # Version of __repr__ with the prompt data obfuscated
     def anon_repr(self) -> str:
-        prompt_token_ids_len = len(
-            self.prompt_token_ids
-        ) if self.prompt_token_ids is not None else None
-        prompt_embeds_shape = (self.prompt_embeds.shape
-                               if self.prompt_embeds else None)
-        return (f"NewRequestData("
-                f"req_id={self.req_id},"
-                f"prompt_token_ids_len={prompt_token_ids_len},"
-                f"mm_features={self.mm_features},"
-                f"sampling_params={self.sampling_params},"
-                f"block_ids={self.block_ids},"
-                f"num_computed_tokens={self.num_computed_tokens},"
-                f"lora_request={self.lora_request},"
-                f"prompt_embeds_shape={prompt_embeds_shape}"
-                ")")
+        prompt_token_ids_len = (
+            len(self.prompt_token_ids)
+            if self.prompt_token_ids is not None
+            else None
+        )
+        prompt_embeds_shape = (
+            self.prompt_embeds.shape if self.prompt_embeds else None
+        )
+        return (
+            f"NewRequestData("
+            f"req_id={self.req_id},"
+            f"prompt_token_ids_len={prompt_token_ids_len},"
+            f"mm_features={self.mm_features},"
+            f"sampling_params={self.sampling_params},"
+            f"block_ids={self.block_ids},"
+            f"num_computed_tokens={self.num_computed_tokens},"
+            f"lora_request={self.lora_request},"
+            f"prompt_embeds_shape={prompt_embeds_shape}"
+            ")"
+        )
 
 
 @bc_linter_include
 @dataclass
 class CachedRequestData:
-
     req_ids: list[str]
     # If resumed_from_preemption is False, new_block_ids will be appended to
     # the request's block IDs. If True, new_block_ids will be used as the
@@ -120,7 +127,6 @@ class CachedRequestData:
 @bc_linter_include
 @dataclass
 class SchedulerOutput:
-
     # list of the requests that are scheduled for the first time.
     # We cache the request's data in each worker process, so that we don't
     # need to re-send it every scheduling step.
@@ -164,3 +170,5 @@ class SchedulerOutput:
 
     # KV Cache Connector metadata.
     kv_connector_metadata: Optional[KVConnectorMetadata] = None
+
+    total_num_scheduled_spec_tokens: int = 0
