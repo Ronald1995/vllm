@@ -206,6 +206,10 @@ class SchedulerOutput:
     # Total number of tokens scheduled for all requests.
     # Equal to sum(num_scheduled_tokens.values())
     total_num_scheduled_tokens: int
+    # Whether the worker should capture indexer top-k for this step. This is
+    # false when every scheduled request is still prefilling and explicitly
+    # requested prompt top-k to be skipped.
+    indexer_topk_capture: bool
     # req_id -> spec_token_ids
     # If a request does not have any spec decode tokens, it will not be
     # included in the dictionary.
@@ -275,6 +279,7 @@ class SchedulerOutput:
             scheduled_cached_reqs=CachedRequestData.make_empty(),
             num_scheduled_tokens={},
             total_num_scheduled_tokens=0,
+            indexer_topk_capture=True,
             scheduled_spec_decode_tokens={},
             scheduled_encoder_inputs={},
             num_common_prefix_blocks=[],
