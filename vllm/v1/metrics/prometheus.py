@@ -3,6 +3,7 @@
 
 import os
 import tempfile
+from contextlib import suppress
 
 from prometheus_client import REGISTRY, CollectorRegistry, multiprocess
 
@@ -13,9 +14,9 @@ logger = init_logger(__name__)
 # Global temporary directory for prometheus multiprocessing
 _prometheus_multiproc_dir: tempfile.TemporaryDirectory | None = None
 
-# Collectors created by PrometheusStatLogger.  This must be tracked by
-# collector object rather than metric name: the default registry also contains
-# frontend-owned vLLM metrics whose lifetime is independent of the engine.
+# Collectors created by PrometheusStatLogger. Tracked by collector object rather
+# than metric name: ``REGISTRY`` also holds frontend-owned vLLM metrics whose
+# lifetime is independent of the engine and must survive a logger rebuild.
 _prometheus_stat_logger_collectors: set[object] = set()
 
 
@@ -28,14 +29,16 @@ class PrometheusStatLoggerRegistry:
 
 
 def unregister_prometheus_stat_logger_metrics() -> None:
-    """Unregister collectors created by a previous PrometheusStatLogger."""
+    """Unregister collectors created by a previous PrometheusStatLogger.
+
+    Called before a new logger is constructed: the logger's metric names are
+    fixed, so the previous instance's collectors must be released first.
+    ``unregister_vllm_metrics`` is intentionally broader and may already have
+    removed a collector during test cleanup, hence the suppressed ``KeyError``.
+    """
     for collector in list(_prometheus_stat_logger_collectors):
-        try:
+        with suppress(KeyError):
             REGISTRY.unregister(collector)
-        except KeyError:
-            # ``unregister_vllm_metrics`` is intentionally broader and may
-            # have already removed this collector during test cleanup.
-            pass
     _prometheus_stat_logger_collectors.clear()
 
 
