@@ -168,20 +168,21 @@ def test_sleep_mode_recorder_tracks_success_error_and_in_flight(operation):
 
 @pytest.mark.cpu_test
 def test_sleep_operation_visible_on_production_metrics_endpoint(monkeypatch):
+    """The collectors land on the registry the server scrapes at request time."""
     registry = CollectorRegistry()
-    monkeypatch.delenv("PROMETHEUS_MULTIPROC_DIR", raising=False)
-    monkeypatch.setattr(sleep_metrics, "REGISTRY", registry)
-    monkeypatch.setattr(sleep_metrics, "_metrics", None)
-    monkeypatch.setattr(prometheus_metrics, "REGISTRY", registry)
+    monkeypatch.setattr(prometheus_metrics, "get_prometheus_registry", lambda: registry)
+    sleep_metrics.reset_sleep_mode_operation_metrics()
+    try:
+        app = FastAPI()
+        app.state.engine_client = AsyncMock()
+        attach_router(app)
+        attach_metrics_router(app)
 
-    app = FastAPI()
-    app.state.engine_client = AsyncMock()
-    attach_router(app)
-    attach_metrics_router(app)
-
-    with TestClient(app) as client:
-        assert client.post("/sleep").status_code == 200
-        response = client.get("/metrics")
+        with TestClient(app) as client:
+            assert client.post("/sleep").status_code == 200
+            response = client.get("/metrics")
+    finally:
+        sleep_metrics.reset_sleep_mode_operation_metrics()
 
     assert response.status_code == 200
     samples = [
@@ -222,6 +223,7 @@ def test_sleep_mode():
     ) as remote_server:
         response = requests.post(remote_server.url_for("sleep"), params={"level": "1"})
         assert response.status_code == 200
+        assert response.json() == {"status": "sleeping", "level": 1}
         response = requests.get(remote_server.url_for("is_sleeping"))
         assert response.status_code == 200
         assert response.json().get("is_sleeping") is True
@@ -233,9 +235,14 @@ def test_sleep_mode():
         assert awake == 0
         assert weights_offloaded == 1
         assert discard_all == 0
+        assert _get_sleep_mode_operations_from_api(response) == {
+            ("sleep", "success"): 1
+        }
+        assert "vllm:rl_sleep_mode_operations_in_flight" in response.text
 
         response = requests.post(remote_server.url_for("wake_up"))
         assert response.status_code == 200
+        assert response.json() == {"status": "awake", "tags_woken": None}
         response = requests.get(remote_server.url_for("is_sleeping"))
         assert response.status_code == 200
         assert response.json().get("is_sleeping") is False
@@ -247,15 +254,40 @@ def test_sleep_mode():
         assert awake == 1
         assert weights_offloaded == 0
         assert discard_all == 0
+        assert _get_sleep_mode_operations_from_api(response) == {
+            ("sleep", "success"): 1,
+            ("wake", "success"): 1,
+        }
+
+        # Level 2 discards the weights and the KV cache.
+        response = requests.post(remote_server.url_for("sleep"), params={"level": "2"})
+        assert response.status_code == 200
+        assert response.json() == {"status": "sleeping", "level": 2}
+        response = requests.get(remote_server.url_for("is_sleeping"))
+        assert response.status_code == 200
+        assert response.json().get("is_sleeping") is True
+
+        response = requests.get(remote_server.url_for("metrics"))
+        assert response.status_code == 200
+        awake, weights_offloaded, discard_all = _get_sleep_metrics_from_api(response)
+        assert awake == 0
+        assert weights_offloaded == 0
+        assert discard_all == 1
+
+        response = requests.post(remote_server.url_for("wake_up"))
+        assert response.status_code == 200
+        assert response.json() == {"status": "awake", "tags_woken": None}
 
         # test wake up with tags
         response = requests.post(remote_server.url_for("sleep"), params={"level": "1"})
         assert response.status_code == 200
+        assert response.json() == {"status": "sleeping", "level": 1}
 
         response = requests.post(
             remote_server.url_for("wake_up"), params={"tags": ["weights"]}
         )
         assert response.status_code == 200
+        assert response.json() == {"status": "sleeping", "tags_woken": ["weights"]}
 
         # Partial wake keeps the engine sleeping.
         response = requests.get(remote_server.url_for("is_sleeping"))
@@ -266,6 +298,7 @@ def test_sleep_mode():
             remote_server.url_for("wake_up"), params={"tags": ["kv_cache"]}
         )
         assert response.status_code == 200
+        assert response.json() == {"status": "awake", "tags_woken": ["kv_cache"]}
 
         response = requests.get(remote_server.url_for("is_sleeping"))
         assert response.status_code == 200
@@ -278,6 +311,28 @@ def test_sleep_mode():
         assert awake == 1
         assert weights_offloaded == 0
         assert discard_all == 0
+        assert _get_sleep_mode_operations_from_api(response) == {
+            ("sleep", "success"): 3,
+            ("wake", "success"): 4,
+        }
+        assert "vllm:rl_sleep_mode_operation_duration_seconds" in response.text
+
+        # Invalid parameters are rejected before the engine is dispatched to.
+        for query, param in (
+            ("level=3", "query.level"),
+            ("level=invalid", "query.level"),
+            ("mode=invalid", "query.mode"),
+        ):
+            response = requests.post(remote_server.url_for("sleep"), params=query)
+            assert response.status_code == 400
+            assert response.json()["error"]["param"] == param
+
+        response = requests.get(remote_server.url_for("metrics"))
+        assert response.status_code == 200
+        assert _get_sleep_mode_operations_from_api(response) == {
+            ("sleep", "success"): 3,
+            ("wake", "success"): 4,
+        }
 
 
 def _get_sleep_metrics_from_api(response: requests.Response):
@@ -301,3 +356,20 @@ def _get_sleep_metrics_from_api(response: requests.Response):
     assert discard_all is not None
 
     return awake, weights_offloaded, discard_all
+
+
+def _get_sleep_mode_operations_from_api(
+    response: requests.Response,
+) -> dict[tuple[str, str], float]:
+    """Return the dispatched sleep-mode operation counters by (operation, status)."""
+    operations: dict[tuple[str, str], float] = {}
+
+    for family in text_string_to_metric_families(response.text):
+        if family.name == "vllm:rl_sleep_mode_operations":
+            for sample in family.samples:
+                if sample.name == "vllm:rl_sleep_mode_operations_total":
+                    operations[
+                        (sample.labels["operation"], sample.labels["status"])
+                    ] = sample.value
+
+    return operations
