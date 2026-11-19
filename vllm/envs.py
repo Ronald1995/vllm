@@ -322,6 +322,7 @@ if TYPE_CHECKING:
     VLLM_USE_NCCL_SYMM_MEM: bool = False
     VLLM_NCCL_INCLUDE_PATH: str | None = None
     VLLM_GC_DEBUG: str = ""
+    VLLM_ENGINE_GC_THRESHOLDS: str = ""
     VLLM_DEBUG_WORKSPACE: bool = False
     VLLM_DISABLE_SHARED_EXPERTS_STREAM: bool = False
     VLLM_DISABLE_DSV4_MEGAMOE_SHARED_EXPERT_FUSION: bool = False
@@ -2271,6 +2272,9 @@ environment_variables: dict[str, Callable[[], Any]] = {
     # - VLLM_GC_DEBUG='{"top_objects":5}': enable GC debugger with
     #                                      top 5 collected objects
     "VLLM_GC_DEBUG": lambda: os.getenv("VLLM_GC_DEBUG", ""),
+    # Optional comma-separated Python gc.set_threshold values for EngineCore
+    # and GPU workers after warmup, for example "50000,20,100".
+    "VLLM_ENGINE_GC_THRESHOLDS": lambda: os.getenv("VLLM_ENGINE_GC_THRESHOLDS", ""),
     # Debug workspace allocations.
     # logging of workspace resize operations.
     "VLLM_DEBUG_WORKSPACE": lambda: bool(int(os.getenv("VLLM_DEBUG_WORKSPACE", "0"))),
@@ -2573,6 +2577,7 @@ def compile_factors() -> dict[str, object]:
         "VLLM_HOST_IP",
         "VLLM_RAY_BUNDLE_INDICES",
         "VLLM_CHAT_TEMPLATE_FUEL",
+        "VLLM_ENGINE_GC_THRESHOLDS",
         "VLLM_ELASTIC_EP_SCALE_UP_LAUNCH",
         "VLLM_FORCE_AOT_LOAD",
         "S3_ACCESS_KEY_ID",

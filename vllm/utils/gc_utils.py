@@ -133,6 +133,22 @@ def freeze_gc_heap() -> None:
     gc.freeze()
 
 
+def configure_engine_gc_thresholds() -> None:
+    """Apply any serving-time GC threshold override to the current process."""
+    configured = envs.VLLM_ENGINE_GC_THRESHOLDS
+    if not configured:
+        return
+    thresholds = configured.split(",")
+    if len(thresholds) != 3 or not all(
+        value.strip().isdecimal() for value in thresholds
+    ):
+        raise ValueError(
+            "VLLM_ENGINE_GC_THRESHOLDS must contain three comma-separated "
+            "nonnegative integers"
+        )
+    gc.set_threshold(*(int(value) for value in thresholds))
+
+
 _T = TypeVar("_T")
 
 # PyDLL call: holds the GIL. CPython never re-tracks an untracked list.

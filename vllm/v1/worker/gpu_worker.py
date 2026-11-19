@@ -98,7 +98,11 @@ from vllm.tracing import instrument
 from vllm.triton_utils import HAS_TRITON
 from vllm.utils.extensible_tensor import granule_size
 from vllm.utils.flashinfer import warn_if_flashinfer_kernels_missing
-from vllm.utils.gc_utils import freeze_gc_heap, maybe_attach_gc_debug_callback
+from vllm.utils.gc_utils import (
+    configure_engine_gc_thresholds,
+    freeze_gc_heap,
+    maybe_attach_gc_debug_callback,
+)
 from vllm.utils.gpu_sync_debug import enable_gpu_sync_check, with_gpu_sync_check
 from vllm.utils.mem_constants import GiB_bytes
 from vllm.utils.mem_utils import (
@@ -1277,6 +1281,7 @@ class Worker(WorkerBase):
         # CUDA graphs) during inference.
         gc.unfreeze()
         freeze_gc_heap()
+        configure_engine_gc_thresholds()
         maybe_attach_gc_debug_callback()
 
         # Warmup / first-compile is done — activate the `VLLM_GPU_SYNC_CHECK`

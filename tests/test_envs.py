@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import gc
 import os
 from unittest.mock import patch
 
@@ -16,6 +17,7 @@ from vllm.envs import (
     environment_variables,
 )
 from vllm.exceptions import VLLMValidationError
+from vllm.utils.gc_utils import configure_engine_gc_thresholds
 
 
 def test_object_storage_shm_default_name():
@@ -54,6 +56,22 @@ def test_ray_bundle_indices_is_not_compile_factor(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("VLLM_RAY_BUNDLE_INDICES", "4,5,6,7")
 
     assert "VLLM_RAY_BUNDLE_INDICES" not in envs.compile_factors()
+
+
+def test_engine_gc_thresholds_override(monkeypatch):
+    env_name = "VLLM_ENGINE_GC_THRESHOLDS"
+    previous = gc.get_threshold()
+    try:
+        monkeypatch.setenv(env_name, "50000,20,100")
+        configure_engine_gc_thresholds()
+        assert gc.get_threshold()[:2] == (50000, 20)
+        assert env_name not in envs.compile_factors()
+
+        monkeypatch.setenv(env_name, "50000,20,-1")
+        with pytest.raises(ValueError, match=env_name):
+            configure_engine_gc_thresholds()
+    finally:
+        gc.set_threshold(*previous)
 
 
 def test_chat_template_fuel_is_not_compile_factor(monkeypatch: pytest.MonkeyPatch):

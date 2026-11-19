@@ -48,6 +48,7 @@ from vllm.tracing import instrument, maybe_init_worker_tracer
 from vllm.transformers_utils.config import maybe_register_config_serialize_by_value
 from vllm.utils import numa_utils
 from vllm.utils.gc_utils import (
+    configure_engine_gc_thresholds,
     freeze_gc_heap,
     maybe_attach_gc_debug_callback,
 )
@@ -277,6 +278,7 @@ class EngineCore:
         # Mark the startup heap as static so that it's ignored by GC.
         # Reduces pause times of oldest generation collections.
         freeze_gc_heap()
+        configure_engine_gc_thresholds()
         # If enable, attach GC debugger after static variable freeze.
         maybe_attach_gc_debug_callback()
         # Enable environment variable cache (e.g. assume no more
